@@ -9,26 +9,36 @@
 - Web UI URL: `<http://host:8080>`
 - API URL: `<http://host:8008>`
 - Fileserver URL: `<http://host:8081>`
+- MinIO API URL: `<http://host:9000>`
+- MinIO Console URL: `<http://host:9001>`
+- MinIO Bucket: `<clearml-artifacts>`
 
 ## Login Credentials
-- Login / email: `<verified-login>`
-- Password: `<verified-password-or-manually-set>`
-- Password note: `<store securely / reset required / manually defined during first-run>`
+- ClearML login / email: `<verified-login>`
+- ClearML password: `<verified-password-or-manually-set>`
+- ClearML password note: `<store securely / reset required / manually defined during first-run>`
+- MinIO access key: `<verified-minio-user>`
+- MinIO secret key: `<verified-minio-password>`
 
 ## Validation Results
 - Web UI reachable: `<yes|no>`
 - API reachable: `<yes|no>`
 - Fileserver reachable: `<yes|no>`
-- Login verified: `<yes|no>`
+- MinIO API reachable: `<yes|no>`
+- MinIO Console reachable: `<yes|no>`
+- ClearML login verified: `<yes|no>`
+- MinIO login verified: `<yes|no>`
 - Test project created: `<yes|no>`
 - Test task created: `<yes|no>`
 - Artifacts upload verified: `<yes|no>`
+- Artifact present in MinIO bucket: `<yes|no>`
 
 ## Commands Executed
 ```bash
 <docker compose commands>
 <smoke test command>
 <any manual bootstrap commands>
+<any sdk test command with output_uri>
 ```
 
 ## Notes / Issues
@@ -36,4 +46,4 @@
 - `<issue 2>`
 
 ## Handover
-- Next action required from operator: `<none / rotate password / configure DNS / add TLS / etc.>`
+- Next action required from operator: `<none / rotate passwords / configure DNS / add TLS / create dedicated MinIO user / etc.>`

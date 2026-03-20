@@ -16,8 +16,10 @@ get_env() {
 WEB_URL="$(get_env CLEARML_WEB_EXTERNAL_URL)"
 API_URL="$(get_env CLEARML_API_EXTERNAL_URL)"
 FILES_URL="$(get_env CLEARML_FILESERVER_URL)"
+MINIO_URL="$(get_env MINIO_ENDPOINT)"
+MINIO_CONSOLE_URL="$(get_env MINIO_CONSOLE_URL)"
 
-if [[ -z "$WEB_URL" || -z "$API_URL" || -z "$FILES_URL" ]]; then
+if [[ -z "$WEB_URL" || -z "$API_URL" || -z "$FILES_URL" || -z "$MINIO_URL" || -z "$MINIO_CONSOLE_URL" ]]; then
   echo "ERROR: one or more required URLs are missing in $ENV_FILE" >&2
   exit 1
 fi
@@ -42,9 +44,12 @@ check_url() {
 check_url "webserver" "$WEB_URL"
 check_url "apiserver" "$API_URL"
 check_url "fileserver" "$FILES_URL"
+check_url "minio-api" "$MINIO_URL"
+check_url "minio-console" "$MINIO_CONSOLE_URL"
 
 echo "==> Optional endpoint checks"
 curl -k -fsS --max-time 20 "$API_URL/debug.ping" >/dev/null && echo "PASS apiserver debug.ping"
 curl -k -fsS --max-time 20 "$FILES_URL" >/dev/null && echo "PASS fileserver root"
+curl -k -fsS --max-time 20 "$MINIO_URL/minio/health/live" >/dev/null && echo "PASS minio live health"
 
 echo "Smoke test finished successfully."
