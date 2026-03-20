@@ -1,0 +1,195 @@
+services:
+  mongo:
+    image: mongo:6.0
+    container_name: clearml-mongo
+    restart: unless-stopped
+    command: ["--setParameter", "ttlMonitorSleepSecs=60"]
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ ping: 1 }).ok"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+    networks:
+      - clearml
+
+  redis:
+    image: redis:7-alpine
+    container_name: clearml-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - clearml
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.24
+    container_name: clearml-elasticsearch
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      cluster.name: clearml
+      bootstrap.memory_lock: "true"
+      ES_JAVA_OPTS: ${CLEARML_ES_JAVA_OPTS:-"-Xms1g -Xmx1g"}
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+    networks:
+      - clearml
+
+  apiserver:
+    image: allegroai/clearml:latest
+    container_name: clearml-apiserver
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    command: ["bash", "-lc", "clearml-apiserver"]
+    environment:
+      CLEARML__apiserver__listen__port: 8008
+      CLEARML__hosts__mongo: mongodb://mongo:27017/clearml
+      CLEARML__hosts__redis: redis://redis:6379
+      CLEARML__hosts__elasticsearch: http://elasticsearch:9200
+      CLEARML__hosts__secure: ${CLEARML_SECURE_HOST:-http://localhost:8080}
+      CLEARML__fileserver__url: ${CLEARML_FILESERVER_URL:-http://localhost:8081}
+      CLEARML__services__async_urls__files: ${CLEARML_FILESERVER_URL:-http://localhost:8081}
+      CLEARML_LOG_LEVEL: INFO
+    ports:
+      - "${CLEARML_API_PORT:-8008}:8008"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8008/debug.ping || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 15
+      start_period: 40s
+    networks:
+      - clearml
+
+  webserver:
+    image: allegroai/clearml:latest
+    container_name: clearml-webserver
+    restart: unless-stopped
+    depends_on:
+      apiserver:
+        condition: service_healthy
+    command: ["bash", "-lc", "clearml-webserver"]
+    environment:
+      CLEARML_WEB_HOST: 0.0.0.0
+      CLEARML_WEB_PORT: 8080
+      CLEARML_API_HOST: ${CLEARML_API_EXTERNAL_URL:-http://localhost:8008}
+      CLEARML_FILES_HOST: ${CLEARML_FILESERVER_URL:-http://localhost:8081}
+      CLEARML_LOG_LEVEL: INFO
+    ports:
+      - "${CLEARML_WEB_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080 >/dev/null || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 15
+      start_period: 40s
+    networks:
+      - clearml
+
+  fileserver:
+    image: allegroai/clearml:latest
+    container_name: clearml-fileserver
+    restart: unless-stopped
+    command: ["bash", "-lc", "clearml-fileserver"]
+    environment:
+      CLEARML__fileserver__port: 8081
+      CLEARML__fileserver__files_root: /mnt/fileserver
+      CLEARML_LOG_LEVEL: INFO
+    volumes:
+      - fileserver_data:/mnt/fileserver
+    ports:
+      - "${CLEARML_FILE_PORT:-8081}:8081"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8081 >/dev/null || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 15
+      start_period: 20s
+    networks:
+      - clearml
+
+  minio:
+    image: minio/minio:latest
+    container_name: clearml-minio
+    restart: unless-stopped
+    command: server /data --console-address ':9001'
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-clearmladmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-clearmlminio123}
+    volumes:
+      - minio_data:/data
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/minio/health/live >/dev/null || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 15
+      start_period: 20s
+    networks:
+      - clearml
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: clearml-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >-
+      /bin/sh -c '
+      mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" &&
+      mc mb --ignore-existing local/"$$MINIO_BUCKET" &&
+      mc anonymous set private local/"$$MINIO_BUCKET" &&
+      echo "MinIO bucket $$MINIO_BUCKET is ready"
+      '
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-clearmladmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-clearmlminio123}
+      MINIO_BUCKET: ${MINIO_BUCKET:-clearml-artifacts}
+    restart: "no"
+    networks:
+      - clearml
+
+networks:
+  clearml:
+    name: clearml
+
+volumes:
+  mongo_data:
+    name: clearml_mongo_data
+  redis_data:
+    name: clearml_redis_data
+  elasticsearch_data:
+    name: clearml_elasticsearch_data
+  fileserver_data:
+    name: clearml_fileserver_data
+  minio_data:
+    name: clearml_minio_data
